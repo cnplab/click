@@ -622,6 +622,13 @@ ac_includes_default="\
 ac_header_list=
 ac_subst_vars='LTLIBOBJS
 provisions
+clickbuild_sbindir
+clickbuild_libdir
+clickbuild_includedir
+clickbuild_datadir
+clickbuild_clickdatadir
+clickbuild_bindir
+clickdatadir
 POD2MAN
 TEXI2DVI
 MAKEINFO
@@ -645,6 +652,7 @@ INSTALL_IF_CHANGED
 INSTALL_DATA
 INSTALL_SCRIPT
 INSTALL_PROGRAM
+LINUX_DEBUG_FLAGS
 CLICKLINUX_FIXINCLUDES_PROGRAM
 LINUX_FIXINCLUDES_PROGRAM
 linux_makeargs
@@ -658,13 +666,11 @@ PCAP_INCLUDES
 TOOL_TARGETS
 TOOLDIRS
 OTHER_TARGETS
-HAVE_MINIOS_DRIVER
 HAVE_BSDMODULE_DRIVER
 HAVE_LINUXMODULE_DRIVER
 HAVE_USERLEVEL_DRIVER
 DRIVERS
 POSSIBLE_DRIVERS
-clickdatadir
 LINUXMODULE_2_6
 EXTRA_TOOL_OBJS
 EXTRA_DRIVER_OBJS
@@ -803,6 +809,7 @@ enable_icmp
 enable_ip
 enable_ip6
 enable_ipsec
+enable_json
 enable_local
 enable_radio
 enable_simple
@@ -814,6 +821,7 @@ enable_wifi
 enable_experimental
 enable_skip_elements
 with_freebsd
+enable_smaller_code
 enable_int64
 enable_nanotimestamp
 enable_bound_port_transfer
@@ -1457,21 +1465,24 @@ Optional Features:
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
   --disable-userlevel     disable user-level driver
-    --enable-user-multithread support userlevel multithreading
-    --enable-select=[select|poll|kqueue] set file descriptor wait mechanism
-    --disable-select          do not use select()
-    --disable-poll            do not use poll()
-    --disable-kqueue          do not use kqueue()
+    --enable-user-multithread
+                          support userlevel multithreading
+    --enable-select=[select|poll|kqueue]
+                          set file descriptor wait mechanism
+    --disable-select      do not use select()
+    --disable-poll        do not use poll()
+    --disable-kqueue      do not use kqueue()
   --disable-linuxmodule   disable Linux kernel driver
-    --disable-fixincludes     do not patch Linux kernel headers for C++
-    --enable-multithread[=N]  support kernel multithreading, N threads max
-    --enable-warp9            reduce PollDevice functionality for speed
-    --enable-kassert          enable kernel assertions
-    --enable-adaptive         use adaptive scheduler to flexibly arbitrate
-                              between Click and the kernel (EXPERIMENTAL)
-    --disable-linux-symbols   do not export Click symbols (breaks packages)
+    --disable-fixincludes do not patch Linux kernel headers for C++
+    --enable-multithread  support kernel multithreading
+    --enable-warp9        reduce PollDevice functionality for speed
+    --enable-kassert      enable kernel assertions
+    --enable-adaptive     use adaptive scheduler to flexibly arbitrate between
+                          Click and the kernel (EXPERIMENTAL)
+    --disable-linux-symbols
+                          do not export Click symbols (breaks packages)
   --enable-bsdmodule      enable FreeBSD kernel driver (EXPERIMENTAL)
-    --disable-netisr          disable NETISR scheduling in BSD
+    --disable-netisr      disable NETISR scheduling in BSD
   --enable-nsclick        enable NS simulator driver
   --disable-minios          enable minios application
   --enable-all-elements   include all provided element groups
@@ -1485,6 +1496,7 @@ Optional Features:
   --disable-ip            do not include IP elements
   --enable-ip6            include IPv6 elements
   --enable-ipsec          include IP security elements
+  --enable-json           include JSON helpers
   --enable-local          include local elements
   --enable-radio          include radio elements
   --disable-simple        do not include simple versions of other elements
@@ -1495,6 +1507,7 @@ Optional Features:
   --enable-wifi           include wifi elements and support
   --enable-experimental   enable experimental elements in normal groups
   --enable-skip-elements=ELTS disable comma-separated elements
+  --enable-smaller-code   generate smaller code (sometimes slower)
   --disable-int64         disable 64-bit integer support
   --enable-nanotimestamp  enable nanosecond timestamps
   --enable-bound-port-transfer  enable port transfer function ptr optimization
@@ -6214,7 +6227,7 @@ fi
 if test "${enable_select+set}" = set; then :
   enableval=$enable_select; :
 else
-  enable_select='select poll kqueue'
+  enable_select="select poll kqueue"
 fi
 
 # Check whether --enable-poll was given.
@@ -6284,13 +6297,7 @@ else
 fi
 
 
-test "$enable_multithread" = yes && enable_multithread=4
-test "$enable_multithread" = no && enable_multithread=1
-if test "$enable_multithread" -gt 1; then
-    cat >>confdefs.h <<_ACEOF
-#define NUM_CLICK_CPUS $enable_multithread
-_ACEOF
-
+if test "$enable_multithread" != no -a "$enable_multithread" != 1; then
     cat >>confdefs.h <<_ACEOF
 #define __MTCLICK__ 1
 _ACEOF
@@ -6302,10 +6309,7 @@ _ACEOF
     saveflags="$CPPFLAGS"
     CPPFLAGS="$saveflags -D__MTCLICK__"
 else
-    cat >>confdefs.h <<_ACEOF
-#define NUM_CLICK_CPUS 1
-_ACEOF
-
+    enable_multithread=no
 fi
 
 # Check whether --enable-warp9 was given.
@@ -6393,7 +6397,6 @@ fi
 
 
 
-
 # Check whether --enable-minios was given.
 if test "${enable_minios+set}" = set; then :
   enableval=$enable_minios; :
@@ -6435,7 +6438,7 @@ fi
 linux_system_map_boot=no
 
 if test "x$linuxpath" = xNONE -o "x$linuxpath" = xyes; then
-    if uname -r 2>/dev/null | grep '^2\.6' >/dev/null 2>&1; then
+    if uname -r 2>/dev/null | grep '^\(2\.6\|3\.\)' >/dev/null 2>&1; then
 	linuxpath=/lib/modules/"`uname -r`"/build
 	linux_system_map_boot="`uname -r`"
     else
@@ -6648,6 +6651,17 @@ test "x$enable_all_elements" = xyes -a \( "x$enable_ipsec" = xNO -o "x$enable_ip
 if test "x$enable_ipsec" = xyes; then
     :
     $as_echo "#define HAVE_IPSEC 1" >>confdefs.h
+
+fi
+# Check whether --enable-json was given.
+if test "${enable_json+set}" = set; then :
+  enableval=$enable_json;
+else
+  enable_json=NO
+fi
+test "x$enable_all_elements" = xyes -a \( "x$enable_json" = xNO -o "x$enable_json" = x \) && enable_json=yes
+if test "x$enable_json" = xyes; then
+    :
 
 fi
 # Check whether --enable-local was given.
@@ -6904,6 +6918,19 @@ ac_compiler_gnu=$ac_cv_cxx_compiler_gnu
 
 
 
+
+# Check whether --enable-smaller-code was given.
+if test "${enable_smaller_code+set}" = set; then :
+  enableval=$enable_smaller_code; :
+else
+  enable_smaller_code=no
+fi
+
+if test "x$enable_smaller_code" = xyes; then
+
+$as_echo "#define CLICK_OPTIMIZE_SIZE 1" >>confdefs.h
+
+fi
 
 # Check whether --enable-int64 was given.
 if test "${enable_int64+set}" = set; then :
@@ -7410,7 +7437,7 @@ else
 
 	    	    ac_cv_endian=0
 	    cat > conftest.$ac_ext <<EOF
-#line 7413 "configure"
+#line 7440 "configure"
 #include "confdefs.h"
 #include <$endian_hdr>
 #ifdef __BYTE_ORDER
@@ -9175,9 +9202,9 @@ $as_echo "$linux_system_map (unreadable)" >&6; }
     as_fn_error $? "
 =========================================
 
-The Linux System.map file $linux_system_map cannot be read.
-Try running the ./configure script as root (or use the --with-linux=DIR
-and/or --with-linux-map=MAP options).
+$linux_system_map exists, but is unreadable.
+Run 'sudo ./configure', run 'sudo chmod go+r $linux_system_map',
+or use the --with-linux=DIR and/or --with-linux-map=MAP options.
 
 =========================================" "$LINENO" 5
 else
@@ -9236,11 +9263,20 @@ $as_echo "unknown" >&6; }
 fi
 
 LINUXMODULE_2_6=0
-if test "$linux_version.$linux_patchlevel" = 2.6; then
+if test "$linux_version.$linux_patchlevel" = 2.6 -o "$linux_version" = 3; then
     LINUXMODULE_2_6=1
 
 $as_echo "#define HAVE_LINUXMODULE_2_6 1" >>confdefs.h
 
+fi
+if test "$LINUXMODULE_2_6" = 0; then
+    as_fn_error $? "
+=========================================
+
+Click no longer supports in-kernel compilation on Linux 2.4 kernels.
+Try an older version of Click.
+
+=========================================" "$LINENO" 5
 fi
 
 
@@ -9449,70 +9485,6 @@ fi
 $as_echo "$ac_cv_linux_ktime_h" >&6; }
 if test $ac_cv_linux_ktime_h = yes; then
     $as_echo "#define HAVE_LINUX_KTIME_H 1" >>confdefs.h
-
-fi
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for atomic_set_mask" >&5
-$as_echo_n "checking for atomic_set_mask... " >&6; }
-if ${ac_cv_linux_atomic_set_mask+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if grep atomic_set_mask `find_linuxpath include/asm/atomic.h` >/dev/null 2>&1; then
-  ac_cv_linux_atomic_set_mask=yes
-else ac_cv_linux_atomic_set_mask=no; fi
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_linux_atomic_set_mask" >&5
-$as_echo "$ac_cv_linux_atomic_set_mask" >&6; }
-if test $ac_cv_linux_atomic_set_mask = yes; then
-    $as_echo "#define HAVE_LINUX_ATOMIC_SET_MASK 1" >>confdefs.h
-
-fi
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for atomic_add_return" >&5
-$as_echo_n "checking for atomic_add_return... " >&6; }
-if ${ac_cv_linux_atomic_add_return+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if grep atomic_add_return `find_linuxpath include/asm/atomic.h` >/dev/null 2>&1; then
-  ac_cv_linux_atomic_add_return=yes
-else ac_cv_linux_atomic_add_return=no; fi
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_linux_atomic_add_return" >&5
-$as_echo "$ac_cv_linux_atomic_add_return" >&6; }
-if test $ac_cv_linux_atomic_add_return = yes; then
-    $as_echo "#define HAVE_LINUX_ATOMIC_ADD_RETURN 1" >>confdefs.h
-
-fi
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for <asm/alternative.h>" >&5
-$as_echo_n "checking for <asm/alternative.h>... " >&6; }
-if ${ac_cv_linux_asm_alternative_h+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test -r `find_linuxpath include/asm/alternative.h` >/dev/null 2>&1; then
-  ac_cv_linux_asm_alternative_h=yes
-else ac_cv_linux_asm_alternative_h=no; fi
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_linux_asm_alternative_h" >&5
-$as_echo "$ac_cv_linux_asm_alternative_h" >&6; }
-if test $ac_cv_linux_asm_alternative_h = yes; then
-    $as_echo "#define HAVE_LINUX_ASM_ALTERNATIVE_H 1" >>confdefs.h
-
-fi
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for <asm/system.h>" >&5
-$as_echo_n "checking for <asm/system.h>... " >&6; }
-if ${ac_cv_linux_asm_system_h+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  if test -r `find_linuxpath include/asm/system.h` >/dev/null 2>&1; then
-  ac_cv_linux_asm_system_h=yes
-else ac_cv_linux_asm_system_h=no; fi
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_linux_asm_system_h" >&5
-$as_echo "$ac_cv_linux_asm_system_h" >&6; }
-if test $ac_cv_linux_asm_system_h = yes; then
-    $as_echo "#define HAVE_LINUX_ASM_SYSTEM_H 1" >>confdefs.h
 
 fi
 
@@ -9725,7 +9697,8 @@ else
 fi
 
 if test $enable_dmalloc = yes; then
-    $as_echo "#define CLICK_DMALLOC 1" >>confdefs.h
+
+$as_echo "#define CLICK_DMALLOC 1" >>confdefs.h
 
 fi
 
@@ -9762,7 +9735,8 @@ Try again without '--enable-valgrind'.
 
 =========================================" "$LINENO" 5
 	    fi
-    $as_echo "#define HAVE_VALGRIND 1" >>confdefs.h
+
+$as_echo "#define HAVE_VALGRIND 1" >>confdefs.h
 
 fi
 
@@ -9805,6 +9779,42 @@ fi
 
 
 
+shell_expand () {
+    val=`eval echo '$'"$1"`
+    while echo "x$val" | grep '\$' >/dev/null 2>&1; do val=`eval echo "$val"`; done
+    val=`echo "$val" | sed 's,//*,/,g'`
+    eval "$1='$val'"
+}
+
+shell_mkbuild () {
+    val=`eval echo '$'"$1"`
+    pval="$prefix"
+    while test -n "$pval" -a -n "$val"; do
+	component=`echo "$val" | sed 's,^\(/[^/]*\).*,\1,'`
+	pcomponent=`echo "$pval" | sed 's,^\(/[^/]*\).*,\1,'`
+	if test "$component" != "$pcomponent"; then break; fi
+	val=`echo "$val" | sed 's,^/[^/]*,,'`
+	pval=`echo "$pval" | sed 's,^/[^/]*,,'`
+    done
+    while test -n "$pval"; do
+	val="/..$val"
+	pval=`echo "$pval" | sed 's,^/[^/]*,,'`
+    done
+    eval "clickbuild_$1='"'$'"{clickbuild_prefix}$val'"
+}
+
+test "x$prefix" = xNONE && prefix=$ac_default_prefix
+test "x$exec_prefix" = xNONE && exec_prefix='${prefix}'
+
+clickdatadir="$datadir/click"
+
+for i in bin clickdata data dataroot include lib sbin; do
+    shell_expand ${i}dir
+    shell_mkbuild ${i}dir
+done
+
+
+
 for ac_header in ifaddrs.h linux/if_tun.h net/if_dl.h net/if_tap.h net/if_tun.h net/if_types.h net/bpf.h netpacket/packet.h
 do :
   as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
@@ -9817,44 +9827,6 @@ _ACEOF
 fi
 
 done
-
-
-
-
-shell_expand () {
-    val=`eval echo '$'"$1"`
-    while echo "x$val" | grep '\$' >/dev/null 2>&1; do val=`eval echo "$val"`; done
-    eval "$1='$val'"
-}
-
-test "x$prefix" = xNONE && prefix=$ac_default_prefix
-test "x$exec_prefix" = xNONE && exec_prefix='${prefix}'
-
-if test x$infodir = 'x${prefix}/info'; then
-    test ! -d ${prefix}/info && test -d ${prefix}/share/info && infodir='${prefix}/share/info'
-fi
-
-shell_expand bindir
-shell_expand sbindir
-shell_expand libdir
-shell_expand datarootdir
-shell_expand datadir
-shell_expand includedir
-
-clickdatadir="$datadir/click"
-
-
-cat >>confdefs.h <<_ACEOF
-#define CLICK_BINDIR "$bindir"
-_ACEOF
-
-cat >>confdefs.h <<_ACEOF
-#define CLICK_LIBDIR "$libdir"
-_ACEOF
-
-cat >>confdefs.h <<_ACEOF
-#define CLICK_DATADIR "$clickdatadir"
-_ACEOF
 
 
 
@@ -9875,8 +9847,6 @@ HAVE_USERLEVEL_DRIVER=0
 HAVE_LINUXMODULE_DRIVER=0
 
 HAVE_BSDMODULE_DRIVER=0
-
-HAVE_MINIOS_DRIVER=0
 
 
 OTHER_TARGETS=
@@ -10159,7 +10129,8 @@ done
 	LDFLAGS="$saveflags"
     fi
 
-    if test "$HAVE_PCAP" != yes -a "$ac_cv_under_linux" != yes; then
+    CLICK_CHECK_NETMAP
+    if test "$HAVE_PCAP" != yes -a "$HAVE_NETMAP" != yes -a "$ac_cv_under_linux" != yes; then
 	{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING:
 =========================================
 
@@ -10454,9 +10425,11 @@ if test $ac_have_linux_kernel = y; then
     save_cxx="$CXX"
     save_cppflags="$CPPFLAGS"
     save_cflags="$CFLAGS"
+    save_cxxflags="$CXXFLAGS"
     unset -v CFLAGS CPPFLAGS
     CC="$KERNEL_CC"
     CXX="$KERNEL_CXX"
+    CXXFLAGS="$KERNEL_CXXFLAGS"
 
         linux_makeargs=
     if test -n "$ARCH"; then
@@ -10469,14 +10442,16 @@ if test $ac_have_linux_kernel = y; then
     fi
 
 
-        if test -n "$LINUX_CFLAGS"; then
+        LINUX_DEBUG_FLAGS=
+    if test -n "$LINUX_CFLAGS"; then
 	:
     elif test $LINUXMODULE_2_6 = 1; then
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for Linux 2.6 compilation flags" >&5
-$as_echo_n "checking for Linux 2.6 compilation flags... " >&6; }
-	make -C $linux_builddir M="`pwd`" $linux_makeargs --no-print-directory -p nonexistent.o >conftest.dat 2>&1
-	for v in KBUILD_CPPFLAGS KBUILD_CFLAGS CPPFLAGS CFLAGS LINUXINCLUDE; do
-	    eval l$v='"'"`grep ^$v' *:*=' conftest.dat | sed s/^$v' *:*= *//'`"'"'
+	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for Linux kernel compilation flags" >&5
+$as_echo_n "checking for Linux kernel compilation flags... " >&6; }
+	echo >conftest.c
+	make -C $linux_builddir M="`pwd`" $linux_makeargs --no-print-directory -p conftest.o >conftest.dat 2>&1
+	for v in KBUILD_CPPFLAGS KBUILD_CFLAGS CPPFLAGS CFLAGS LINUXINCLUDE debug_flags; do
+	    eval l$v="'""`grep ^$v' *:*=' conftest.dat | sed s/^$v' *:*= *//'`""'"
 	done
 	if test -z "$lKBUILD_CPPFLAGS$lKBUILD_CFLAGS$lCPPFLAGS$lCFLAGS$lLINUXINCLUDE"; then
 	    { $as_echo "$as_me:${as_lineno-$LINENO}: result: not found" >&5
@@ -10484,14 +10459,14 @@ $as_echo "not found" >&6; }
 	    as_fn_error $? "
 ==============================================
 
-Can't find Linux 2.6 compilation flags.
+Can't find Linux compilation flags.
 
 ==============================================" "$LINENO" 5
 	    	fi
 	echo "$lCPPFLAGS $lCFLAGS $lLINUXINCLUDE $lKBUILD_CPPFLAGS $lKBUILD_CFLAGS" >conftest.dat
 	LINUX_CFLAGS="`sed -e 's,-Iinclude ',-I$linux_builddir/include' ,g' \
 	    -e 's,-Iinclude2 ',-I$linux_builddir/include2' ,g' \
-	    -e 's,-Iarch/um/include/shared',-I$linux_builddir/arch/um/include/shared',g' \
+	    -e 's,-Iarch/',-I$linux_builddir/arch/',g' \
 	    -e 's, include/, '$linux_builddir/include/,g \
 	    -e s,-Iinclude/,-I${linux_srcdir}include/,g \
 	    -e s,-Wno-pointer-sign,,g \
@@ -10503,6 +10478,7 @@ Can't find Linux 2.6 compilation flags.
 	    -e 's,-W^ *,,g' <conftest.dat`"
 	{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $LINUX_CFLAGS" >&5
 $as_echo "$LINUX_CFLAGS" >&6; }
+	LINUX_DEBUG_FLAGS="$ldebug_flags"
     fi
 
     LINUX_FIXINCLUDES_PROGRAM=
@@ -10522,13 +10498,15 @@ fixincludes.pl execution failed.
 	fi
 	LINUX_CFLAGS="`head -n 1 conftest.dat`"
 	LINUX_FIXINCLUDES_PROGRAM="| sed `tail -n 1 conftest.dat`"
-	CLICKLINUX_FIXINCLUDES_PROGRAM="| sed `tail -n 1 conftest.dat | sed -e "s	$mydir	$includedir/click-linuxmodule	g"`"
+	CLICKLINUX_FIXINCLUDES_PROGRAM="| sed `tail -n 1 conftest.dat | sed -e "s	$mydir	$clickbuild_includedir/click-linuxmodule	g"`"
     fi
 
 
 
 
-    CPPFLAGS="$save_cppflags $LINUX_CFLAGS"
+
+    # -w inhibits warning messages to make debugging actual errors easier
+    CPPFLAGS="$save_cppflags $LINUX_CFLAGS -w"
 
 
     # CLICK_LINUXMODULE_PROLOGUE()
@@ -10558,11 +10536,9 @@ ac_compiler_gnu=$ac_cv_cxx_compiler_gnu
 
 	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -10580,6 +10556,7 @@ $linux_autoconf_include
 #include <asm/types.h>
 #include <linux/signal.h>
 #include <linux/skbuff.h>
+#include <linux/sched.h>
 int
 main ()
 {
@@ -10599,6 +10576,63 @@ fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_cxx_aware_system" >&5
 $as_echo "$ac_cv_cxx_aware_system" >&6; }
 
+    if test $ac_cv_cxx_aware_system = yes; then
+	DRIVERS="$DRIVERS linuxmodule"
+	TOOL_TARGETS="$TOOL_TARGETS click-install"
+	$as_echo "#define HAVE_LINUXMODULE_DRIVER 1" >>confdefs.h
+
+	HAVE_LINUXMODULE_DRIVER=1
+    elif test x$enable_linuxmodule_default = xyes; then
+	{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING:
+=========================================
+
+Your Linux kernel header files cause errors when included by a C++ program,
+so I won't try to compile the linuxmodule driver.
+
+Click modifies the Linux kernel's header files to make them work with
+C++, using the program 'linuxmodule/fixincludes.pl'. It looks like
+your kernel header files have features that 'linuxmodule/fixincludes.pl'
+doesn't know how to fix. You can report this error to us on the Click
+mailing list, or, even better, try to fix the error. See the config.log
+file for more information on the error.
+
+=========================================" >&5
+$as_echo "$as_me: WARNING:
+=========================================
+
+Your Linux kernel header files cause errors when included by a C++ program,
+so I won't try to compile the linuxmodule driver.
+
+Click modifies the Linux kernel's header files to make them work with
+C++, using the program 'linuxmodule/fixincludes.pl'. It looks like
+your kernel header files have features that 'linuxmodule/fixincludes.pl'
+doesn't know how to fix. You can report this error to us on the Click
+mailing list, or, even better, try to fix the error. See the config.log
+file for more information on the error.
+
+=========================================" >&2;}
+	    else
+	as_fn_error $? "
+=========================================
+
+Your Linux kernel header files cause errors when included by a C++ program.
+
+Click modifies the Linux kernel's header files to make them work with
+C++, using the program 'linuxmodule/fixincludes.pl'. It looks like
+your kernel header files have features that 'linuxmodule/fixincludes.pl'
+doesn't know how to fix. You can report this error to us on the Click
+mailing list, or, even better, try to fix the error. See the config.log
+file for more information on the error.
+
+=========================================" "$LINENO" 5
+    fi
+
+    # remove -w
+    CPPFLAGS="$save_cppflags $LINUX_CFLAGS"
+
+    if test $ac_cv_cxx_aware_system = yes; then
+
+
 
     { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether long and int64_t are the same type in the Linux kernel" >&5
 $as_echo_n "checking whether long and int64_t are the same type in the Linux kernel... " >&6; }
@@ -10607,11 +10641,9 @@ if ${ac_cv_long_64_linuxmodule+:} false; then :
 else
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -10655,7 +10687,6 @@ $as_echo "#define HAVE_INT64_IS_LONG_LINUXMODULE 1" >>confdefs.h
 
     fi
 
-
     { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether long long and int64_t are the same type in the Linux kernel" >&5
 $as_echo_n "checking whether long long and int64_t are the same type in the Linux kernel... " >&6; }
 if ${ac_cv_long_long_64_linuxmodule+:} false; then :
@@ -10663,11 +10694,9 @@ if ${ac_cv_long_long_64_linuxmodule+:} false; then :
 else
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -10711,7 +10740,6 @@ $as_echo "#define HAVE_INT64_IS_LONG_LONG_LINUXMODULE 1" >>confdefs.h
 
     fi
 
-
     { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether uintptr_t is defined in the Linux kernel" >&5
 $as_echo_n "checking whether uintptr_t is defined in the Linux kernel... " >&6; }
 if ${ac_cv_uintptr_t_linuxmodule+:} false; then :
@@ -10719,11 +10747,9 @@ if ${ac_cv_uintptr_t_linuxmodule+:} false; then :
 else
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -10765,6 +10791,215 @@ $as_echo "#define HAVE_UINTPTR_T_LINUXMODULE 1" >>confdefs.h
     fi
 
 
+
+    ac_fn_cxx_check_decl "$LINENO" "atomic_cmpxchg" "ac_cv_have_decl_atomic_cmpxchg" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
+#define new linux_new
+#define this linux_this
+#define delete linux_delete
+#define class linux_class
+#define virtual linux_virtual
+#define typename linux_typename
+#define private linux_private
+#define protected linux_protected
+#define public linux_public
+#define namespace linux_namespace
+#define false linux_false
+#define true linux_true
+#define CLICK_CXX_PROTECTED 1
+$linux_autoconf_include
+#include <asm/types.h>
+#include <asm/atomic.h>
+"
+if test "x$ac_cv_have_decl_atomic_cmpxchg" = xyes; then :
+  ac_cv_linux_atomic_cmpxchg=yes
+else
+  ac_cv_linux_atomic_cmpxchg=no
+fi
+
+    if test $ac_cv_linux_atomic_cmpxchg = yes; then
+
+$as_echo "#define HAVE_LINUX_ATOMIC_CMPXCHG 1" >>confdefs.h
+
+    fi
+
+    ac_fn_cxx_check_decl "$LINENO" "atomic_set_mask" "ac_cv_have_decl_atomic_set_mask" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
+#define new linux_new
+#define this linux_this
+#define delete linux_delete
+#define class linux_class
+#define virtual linux_virtual
+#define typename linux_typename
+#define private linux_private
+#define protected linux_protected
+#define public linux_public
+#define namespace linux_namespace
+#define false linux_false
+#define true linux_true
+#define CLICK_CXX_PROTECTED 1
+$linux_autoconf_include
+#include <asm/types.h>
+#include <asm/atomic.h>
+"
+if test "x$ac_cv_have_decl_atomic_set_mask" = xyes; then :
+  ac_cv_linux_atomic_set_mask=yes
+else
+  ac_cv_linux_atomic_set_mask=no
+fi
+
+    if test $ac_cv_linux_atomic_set_mask = yes; then
+
+$as_echo "#define HAVE_LINUX_ATOMIC_SET_MASK 1" >>confdefs.h
+
+    fi
+
+    ac_fn_cxx_check_decl "$LINENO" "atomic_add_return" "ac_cv_have_decl_atomic_add_return" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
+#define new linux_new
+#define this linux_this
+#define delete linux_delete
+#define class linux_class
+#define virtual linux_virtual
+#define typename linux_typename
+#define private linux_private
+#define protected linux_protected
+#define public linux_public
+#define namespace linux_namespace
+#define false linux_false
+#define true linux_true
+#define CLICK_CXX_PROTECTED 1
+$linux_autoconf_include
+#include <asm/types.h>
+#include <asm/atomic.h>
+"
+if test "x$ac_cv_have_decl_atomic_add_return" = xyes; then :
+  ac_cv_linux_atomic_add_return=yes
+else
+  ac_cv_linux_atomic_add_return=no
+fi
+
+    if test $ac_cv_linux_atomic_add_return = yes; then
+
+$as_echo "#define HAVE_LINUX_ATOMIC_ADD_RETURN 1" >>confdefs.h
+
+    fi
+
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for <asm/alternative.h>" >&5
+$as_echo_n "checking for <asm/alternative.h>... " >&6; }
+if ${ac_cv_linux_asm_alternative_h+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
+#define new linux_new
+#define this linux_this
+#define delete linux_delete
+#define class linux_class
+#define virtual linux_virtual
+#define typename linux_typename
+#define private linux_private
+#define protected linux_protected
+#define public linux_public
+#define namespace linux_namespace
+#define false linux_false
+#define true linux_true
+#define CLICK_CXX_PROTECTED 1
+$linux_autoconf_include
+#include <asm/types.h>
+#include <asm/alternative.h>
+int
+main ()
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  ac_cv_linux_asm_alternative_h=yes
+else
+  ac_cv_linux_asm_alternative_h=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_linux_asm_alternative_h" >&5
+$as_echo "$ac_cv_linux_asm_alternative_h" >&6; }
+    if test $ac_cv_linux_asm_alternative_h = yes; then
+
+$as_echo "#define HAVE_LINUX_ASM_ALTERNATIVE_H 1" >>confdefs.h
+
+    fi
+
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for <asm/system.h>" >&5
+$as_echo_n "checking for <asm/system.h>... " >&6; }
+if ${ac_cv_linux_asm_system_h+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
+#define new linux_new
+#define this linux_this
+#define delete linux_delete
+#define class linux_class
+#define virtual linux_virtual
+#define typename linux_typename
+#define private linux_private
+#define protected linux_protected
+#define public linux_public
+#define namespace linux_namespace
+#define false linux_false
+#define true linux_true
+#define CLICK_CXX_PROTECTED 1
+$linux_autoconf_include
+#include <asm/types.h>
+#include <asm/system.h>
+int
+main ()
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  ac_cv_linux_asm_system_h=yes
+else
+  ac_cv_linux_asm_system_h=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_linux_asm_system_h" >&5
+$as_echo "$ac_cv_linux_asm_system_h" >&6; }
+    if test $ac_cv_linux_asm_system_h = yes; then
+
+$as_echo "#define HAVE_LINUX_ASM_SYSTEM_H 1" >>confdefs.h
+
+    fi
+
+
+
     { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether struct sk_buff has a security member" >&5
 $as_echo_n "checking whether struct sk_buff has a security member... " >&6; }
 if ${ac_cv_linuxmodule_skbuff_security+:} false; then :
@@ -10778,11 +11013,9 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -10835,11 +11068,9 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -10892,11 +11123,9 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -10949,11 +11178,9 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11006,11 +11233,9 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11063,11 +11288,9 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11107,6 +11330,116 @@ $as_echo "#define HAVE_LINUX_SKB_SHINFO_IP6_FRAG_ID 1" >>confdefs.h
 
     fi
 
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether skb_shinfo has tx_flags defining SKBTX_DEV_ZEROCOPY" >&5
+$as_echo_n "checking whether skb_shinfo has tx_flags defining SKBTX_DEV_ZEROCOPY... " >&6; }
+if ${ac_cv_linuxmodule_skb_shinfo_tx_flags_skbtx_dev_zerocopy+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
+#define new linux_new
+#define this linux_this
+#define delete linux_delete
+#define class linux_class
+#define virtual linux_virtual
+#define typename linux_typename
+#define private linux_private
+#define protected linux_protected
+#define public linux_public
+#define namespace linux_namespace
+#define false linux_false
+#define true linux_true
+#define CLICK_CXX_PROTECTED 1
+$linux_autoconf_include
+#include <asm/types.h>
+#include <linux/skbuff.h>
+int
+main ()
+{
+extern struct sk_buff *s; skb_shinfo(s)->tx_flags = SKBTX_DEV_ZEROCOPY;
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  ac_cv_linuxmodule_skb_shinfo_tx_flags_skbtx_dev_zerocopy=yes
+else
+  ac_cv_linuxmodule_skb_shinfo_tx_flags_skbtx_dev_zerocopy=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_linuxmodule_skb_shinfo_tx_flags_skbtx_dev_zerocopy" >&5
+$as_echo "$ac_cv_linuxmodule_skb_shinfo_tx_flags_skbtx_dev_zerocopy" >&6; }
+    if test $ac_cv_linuxmodule_skb_shinfo_tx_flags_skbtx_dev_zerocopy = yes; then
+
+$as_echo "#define HAVE_LINUX_SKB_SHINFO_TX_FLAGS_SKBTX_DEV_ZEROCOPY 1" >>confdefs.h
+
+    fi
+
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether skb_shinfo has tx_flags.flags" >&5
+$as_echo_n "checking whether skb_shinfo has tx_flags.flags... " >&6; }
+if ${ac_cv_linuxmodule_skb_shinfo_tx_flags_union+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
+#define new linux_new
+#define this linux_this
+#define delete linux_delete
+#define class linux_class
+#define virtual linux_virtual
+#define typename linux_typename
+#define private linux_private
+#define protected linux_protected
+#define public linux_public
+#define namespace linux_namespace
+#define false linux_false
+#define true linux_true
+#define CLICK_CXX_PROTECTED 1
+$linux_autoconf_include
+#include <asm/types.h>
+#include <linux/skbuff.h>
+int
+main ()
+{
+extern struct sk_buff *s; skb_shinfo(s)->tx_flags.flags = 0;
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  ac_cv_linuxmodule_skb_shinfo_tx_flags_union=yes
+else
+  ac_cv_linuxmodule_skb_shinfo_tx_flags_union=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_linuxmodule_skb_shinfo_tx_flags_union" >&5
+$as_echo "$ac_cv_linuxmodule_skb_shinfo_tx_flags_union" >&6; }
+    if test $ac_cv_linuxmodule_skb_shinfo_tx_flags_union = yes; then
+
+$as_echo "#define HAVE_LINUX_SKB_SHINFO_TX_FLAGS_UNION 1" >>confdefs.h
+
+    fi
+
     { $as_echo "$as_me:${as_lineno-$LINENO}: checking for device polling kernel extension" >&5
 $as_echo_n "checking for device polling kernel extension... " >&6; }
 if ${ac_cv_linuxmodule_net_device_polling+:} false; then :
@@ -11120,11 +11453,9 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11164,11 +11495,9 @@ $as_echo "#define HAVE_LINUX_POLLING 1" >>confdefs.h
 
     fi
 
-    ac_fn_c_check_decl "$LINENO" "skb_dst_drop" "ac_cv_have_decl_skb_dst_drop" "#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+    ac_fn_c_check_decl "$LINENO" "skb_dst_drop" "ac_cv_have_decl_skb_dst_drop" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11198,11 +11527,9 @@ $as_echo "#define HAVE_SKB_DST_DROP 1" >>confdefs.h
 
     fi
 
-    ac_fn_c_check_decl "$LINENO" "skb_recycle" "ac_cv_have_decl_skb_recycle" "#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+    ac_fn_c_check_decl "$LINENO" "skb_recycle" "ac_cv_have_decl_skb_recycle" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11232,11 +11559,69 @@ $as_echo "#define HAVE_SKB_RECYCLE 1" >>confdefs.h
 
     fi
 
-    ac_fn_c_check_decl "$LINENO" "skb_linearize" "ac_cv_have_decl_skb_linearize" "#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+save_cflags="$CFLAGS"
+CFLAGS="$save_cflags -Werror-implicit-function-declaration"
+
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether skb_recycle returns an sk_buff" >&5
+$as_echo_n "checking whether skb_recycle returns an sk_buff... " >&6; }
+if ${ac_cv_linuxmodule_click_skb_recycle+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
+#define new linux_new
+#define this linux_this
+#define delete linux_delete
+#define class linux_class
+#define virtual linux_virtual
+#define typename linux_typename
+#define private linux_private
+#define protected linux_protected
+#define public linux_public
+#define namespace linux_namespace
+#define false linux_false
+#define true linux_true
+#define CLICK_CXX_PROTECTED 1
+$linux_autoconf_include
+#include <asm/types.h>
+#include <linux/skbuff.h>
+int
+main ()
+{
+extern struct sk_buff *b; b = skb_recycle(b);
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  ac_cv_linuxmodule_click_skb_recycle=yes
+else
+  ac_cv_linuxmodule_click_skb_recycle=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_linuxmodule_click_skb_recycle" >&5
+$as_echo "$ac_cv_linuxmodule_click_skb_recycle" >&6; }
+    if test $ac_cv_linuxmodule_click_skb_recycle = yes; then
+
+$as_echo "#define HAVE_CLICK_SKB_RECYCLE 1" >>confdefs.h
+
+    fi
+
+CFLAGS="$save_cflags"
+
+    ac_fn_c_check_decl "$LINENO" "skb_linearize" "ac_cv_have_decl_skb_linearize" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11279,11 +11664,9 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11329,11 +11712,9 @@ ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
 ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
 ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
-    ac_fn_c_check_decl "$LINENO" "net_enable_timestamp" "ac_cv_have_decl_net_enable_timestamp" "#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+    ac_fn_c_check_decl "$LINENO" "net_enable_timestamp" "ac_cv_have_decl_net_enable_timestamp" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11364,11 +11745,9 @@ $as_echo "#define HAVE_NET_ENABLE_TIMESTAMP 1" >>confdefs.h
 
     fi
 
-    ac_fn_c_check_decl "$LINENO" "netif_tx_lock" "ac_cv_have_decl_netif_tx_lock" "#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+    ac_fn_c_check_decl "$LINENO" "netif_tx_lock" "ac_cv_have_decl_netif_tx_lock" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11399,11 +11778,9 @@ $as_echo "#define HAVE_NETIF_TX_LOCK 1" >>confdefs.h
 
     fi
 
-    ac_fn_c_check_decl "$LINENO" "netdev_get_tx_queue" "ac_cv_have_decl_netdev_get_tx_queue" "#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+    ac_fn_c_check_decl "$LINENO" "netdev_get_tx_queue" "ac_cv_have_decl_netdev_get_tx_queue" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11434,11 +11811,9 @@ $as_echo "#define HAVE_NETDEV_GET_TX_QUEUE 1" >>confdefs.h
 
     fi
 
-    ac_fn_c_check_decl "$LINENO" "netif_tx_queue_frozen" "ac_cv_have_decl_netif_tx_queue_frozen" "#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+    ac_fn_c_check_decl "$LINENO" "netif_tx_queue_frozen" "ac_cv_have_decl_netif_tx_queue_frozen" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11469,11 +11844,9 @@ $as_echo "#define HAVE_NETIF_TX_QUEUE_FROZEN 1" >>confdefs.h
 
     fi
 
-    ac_fn_c_check_decl "$LINENO" "netdev_uses_dsa_tags" "ac_cv_have_decl_netdev_uses_dsa_tags" "#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+    ac_fn_c_check_decl "$LINENO" "netdev_uses_dsa_tags" "ac_cv_have_decl_netdev_uses_dsa_tags" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11504,11 +11877,9 @@ $as_echo "#define HAVE_NETDEV_USES_DSA_TAGS 1" >>confdefs.h
 
     fi
 
-    ac_fn_c_check_decl "$LINENO" "netdev_uses_trailer_tags" "ac_cv_have_decl_netdev_uses_trailer_tags" "#if HAVE_LINUXMODULE_2_6
-# define KBUILD_STR(s)		#s
-# define KBUILD_BASENAME	KBUILD_STR(click)
-# define KBUILD_MODNAME		KBUILD_STR(click)
-#endif
+    ac_fn_c_check_decl "$LINENO" "netdev_uses_trailer_tags" "ac_cv_have_decl_netdev_uses_trailer_tags" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
 #define new linux_new
 #define this linux_this
 #define delete linux_delete
@@ -11555,6 +11926,8 @@ $as_echo "$ac_cv_linux_netdev_rx_handler_register" >&6; }
 
     fi
 
+
+
     { $as_echo "$as_me:${as_lineno-$LINENO}: checking for get_monotonic_coarse kernel symbol" >&5
 $as_echo_n "checking for get_monotonic_coarse kernel symbol... " >&6; }
 if ${ac_cv_linux_get_monotonic_coarse+:} false; then :
@@ -11587,68 +11960,102 @@ $as_echo "$ac_cv_linux_getboottime" >&6; }
 
     fi
 
+
+
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether struct super_block has an s_d_op member" >&5
+$as_echo_n "checking whether struct super_block has an s_d_op member... " >&6; }
+if ${ac_cv_linuxmodule_super_block_s_d_op+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_ext=c
+ac_cpp='$CPP $CPPFLAGS'
+ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
+ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
+ac_compiler_gnu=$ac_cv_c_compiler_gnu
+
+	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
+#define new linux_new
+#define this linux_this
+#define delete linux_delete
+#define class linux_class
+#define virtual linux_virtual
+#define typename linux_typename
+#define private linux_private
+#define protected linux_protected
+#define public linux_public
+#define namespace linux_namespace
+#define false linux_false
+#define true linux_true
+#define CLICK_CXX_PROTECTED 1
+$linux_autoconf_include
+#include <asm/types.h>
+#include <linux/fs.h>
+int
+main ()
+{
+extern struct super_block *sb; sb->s_d_op = 0;
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  ac_cv_linuxmodule_super_block_s_d_op=yes
+else
+  ac_cv_linuxmodule_super_block_s_d_op=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_linuxmodule_super_block_s_d_op" >&5
+$as_echo "$ac_cv_linuxmodule_super_block_s_d_op" >&6; }
+    if test $ac_cv_linuxmodule_super_block_s_d_op = yes; then
+
+$as_echo "#define HAVE_LINUX_SUPER_BLOCK_S_D_OP 1" >>confdefs.h
+
+    fi
+
+    ac_fn_c_check_decl "$LINENO" "d_make_root" "ac_cv_have_decl_d_make_root" "#define KBUILD_STR(s) #s
+#define KBUILD_BASENAME KBUILD_STR(click)
+#define KBUILD_MODNAME KBUILD_STR(click)
+#define new linux_new
+#define this linux_this
+#define delete linux_delete
+#define class linux_class
+#define virtual linux_virtual
+#define typename linux_typename
+#define private linux_private
+#define protected linux_protected
+#define public linux_public
+#define namespace linux_namespace
+#define false linux_false
+#define true linux_true
+#define CLICK_CXX_PROTECTED 1
+$linux_autoconf_include
+#include <asm/types.h>
+#include <linux/dcache.h>
+"
+if test "x$ac_cv_have_decl_d_make_root" = xyes; then :
+  ac_cv_linux_d_make_root=yes
+else
+  ac_cv_linux_d_make_root=no
+fi
+
+    if test $ac_cv_linux_d_make_root = yes; then
+
+$as_echo "#define HAVE_LINUX_D_MAKE_ROOT 1" >>confdefs.h
+
+    fi
+
+    fi
     CC="$save_cc"
     CXX="$save_cxx"
     CPPFLAGS="$save_cppflags"
     CFLAGS="$save_cflags"
+    CXXFLAGS="$save_cxxflags"
     export CFLAGS CPPFLAGS
-
-    if test $ac_cv_cxx_aware_system = yes; then
-	DRIVERS="$DRIVERS linuxmodule"
-	TOOL_TARGETS="$TOOL_TARGETS click-install"
-	$as_echo "#define HAVE_LINUXMODULE_DRIVER 1" >>confdefs.h
-
-	HAVE_LINUXMODULE_DRIVER=1
-    elif test x$enable_linuxmodule_default = xyes; then
-	{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING:
-=========================================
-
-Your Linux kernel header files cause errors when included by a C++ program,
-so I won't try to compile the linuxmodule driver.
-
-There are two common reasons for this error:
-1. You have not applied the Linux kernel patch that comes with this
-   distribution.  Apply the right patch and try again.  See the INSTALL
-   file for more information.
-2. Your Linux configuration enables some functionality that is not yet
-   covered by our patches.  Turn off this functionality and try again,
-   or fix the error and tell us how you did it.  See the config.log file
-   for more detailed information on the error.
-
-=========================================" >&5
-$as_echo "$as_me: WARNING:
-=========================================
-
-Your Linux kernel header files cause errors when included by a C++ program,
-so I won't try to compile the linuxmodule driver.
-
-There are two common reasons for this error:
-1. You have not applied the Linux kernel patch that comes with this
-   distribution.  Apply the right patch and try again.  See the INSTALL
-   file for more information.
-2. Your Linux configuration enables some functionality that is not yet
-   covered by our patches.  Turn off this functionality and try again,
-   or fix the error and tell us how you did it.  See the config.log file
-   for more detailed information on the error.
-
-=========================================" >&2;}
-	    else
-	as_fn_error $? "
-=========================================
-
-Your Linux kernel header files cause errors when included by a C++ program.
-
-There are two common reasons for this error:
-1. You have not applied the Linux kernel patch that comes with this
-   distribution.  Apply the right patch and try again.  See the INSTALL
-   file for more information.
-2. Your Linux configuration enables some functionality that is not yet
-   covered by our patches.  Turn off this functionality and try again,
-   or fix the error and tell us how you did it.  See the config.log file
-   for more detailed information on the error.
-
-=========================================" "$LINENO" 5
-    fi
 fi
 
 
@@ -12312,6 +12719,32 @@ fi
 
 
 
+
+cat >>confdefs.h <<_ACEOF
+#define CLICK_BINDIR "$bindir"
+_ACEOF
+
+
+cat >>confdefs.h <<_ACEOF
+#define CLICK_LIBDIR "$libdir"
+_ACEOF
+
+
+cat >>confdefs.h <<_ACEOF
+#define CLICK_DATADIR "$clickdatadir"
+_ACEOF
+
+
+
+
+
+
+
+
+
+
+
+
 provisions="$target_cpu"
 case "$target_cpu" in
     i386) :;;
@@ -12340,22 +12773,24 @@ if test "x$ac_cv_under_linux" = xyes; then
 fi
 
 if test $ac_have_linux_kernel = y; then
-    linux_version_h=`find_linuxpath include/linux/version.h`
-    ac_linux_version_code=`grep LINUX_VERSION_CODE $linux_version_h | sed 's/^.*CODE //'`
-    if test $ac_linux_version_code -ge 131584 -a $ac_linux_version_code -lt 131840; then
+    if test $linux_version_code -ge 131584 -a $linux_version_code -lt 131840; then
 	provisions="$provisions linux_2_2"
-    elif test $ac_linux_version_code -ge 132096 -a $ac_linux_version_code -lt 132352; then
+    elif test $linux_version_code -ge 132096 -a $linux_version_code -lt 132352; then
 	provisions="$provisions linux_2_4"
-    elif test $ac_linux_version_code -ge 132608 -a $ac_linux_version_code -lt 132864; then
+    elif test $linux_version_code -ge 132608 -a $linux_version_code -lt 132864; then
 	provisions="$provisions linux_2_6"
     fi
+fi
+
+if test "x$HAVE_NETMAP" = xyes; then
+    provisions="$provisions netmap"
 fi
 
 if test "x$HAVE_PCAP" = xyes; then
     provisions="$provisions pcap"
 fi
 
-if test "$enable_multithread" -gt 1; then
+if test "$enable_multithread" != no; then
     provisions="$provisions smpclick"
 fi
 
