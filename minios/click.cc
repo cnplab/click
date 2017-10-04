@@ -163,7 +163,7 @@ router_thread(void *thread_data)
 	ri->f_stop = 1;
 
 	LOG("Driver stopped, closing router_thread");
-	free(config);
+	delete config;
 	free(rid);
 }
 
